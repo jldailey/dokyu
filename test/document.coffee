@@ -1,18 +1,19 @@
 Document = require "../index"
+assert = require "assert"
+$ = require 'bling'
 
 describe "Document", ->
 
-	it "can set a default connection", ->
-		Document.connect "mongodb://localhost:27017/document_test"
+	Document.connect "mongodb://localhost:27017/document_test"
 	
 	it "can set namespaced connections", ->
 		Document.connect "beta", "mongodb://localhost:27017/beta"
 
-	describe "sub-classing", ->
+	describe "sub-classes", ->
 
-		it "puts documents in a collection", (done) ->
+		it "put documents in a collection", (done) ->
 			class BasicDocument extends Document("basic")
-				constructor: ->
+				constructor: (props) -> $.extend @, props
 
 			new BasicDocument( magic: "marker" ).save().wait (err, saved) ->
 				assert '_id' of saved, "_id of saved"
@@ -23,7 +24,7 @@ describe "Document", ->
 		it "allows indexing", (done) ->
 			class Unique extends Document("uniques")
 				@unique { special: 1 }
-				constructor: ->
+				constructor: (props) -> $.extend @, props
 
 			$.Promise.compose(
 				new Unique( special: "one" ).save()
@@ -31,7 +32,7 @@ describe "Document", ->
 				new Unique( special: "one" ).save()
 			).wait (err) ->
 				# err should be a duplicate key error from the "one"s
-				assert.equal err.code, "E11000"
+				assert.equal err.code, 11000
 				done()
 
 		it "honors the constructor", (done) ->
@@ -41,61 +42,136 @@ describe "Document", ->
 					$.extend @, props
 
 			Constructed.getOrCreate( name: "Jesse" ).wait (err, doc) ->
+				throw err if err
 				assert.equal doc.constructor, Constructed
 				assert.equal doc.name, "Jesse"
 				assert.equal doc.jazz(), "hands!"
 				done()
 
+		describe "proxy basic operations", ->
+			it "count", (done) ->
+				class Counted extends Document("counted")
+					@unique { name: 1 }
+					constructor: (props) -> $.extend @, props
 
-		'''
-				
-		class BlogPost extends Document("blogposts")
-			@unique { title: 1 }
-			@index { author: 1 }
+				$.Promise.compose(
+					Counted.getOrCreate( name: "one" )
+					Counted.getOrCreate( name: "two" )
+					Counted.getOrCreate( name: "three" )
+				).wait (err) ->
+					assert.equal err, null
+					Counted.count().wait (err, count) ->
+						assert.equal count, 3
+						done()
 
-			@defaults = {
-				title: "Untitled"
-				author: "Anonymous"
-				body: ""
-				views: 0
-			}
+			it "findOne", (done) ->
+				class FindOne extends Document("findOne")
+					constructor: (props) -> $.extend @, props
 
-			constructor: (props) ->
-				$.extend @, BlogPost.defaults, props
+				$.Promise.compose(
+					FindOne.getOrCreate( name: "a" )
+					FindOne.getOrCreate( name: "b" )
+					FindOne.getOrCreate( name: "c" )
+				).wait (err) ->
+					assert.equal err, null
+					$.Promise.compose(
+						FindOne.findOne().wait (err, one) ->
+							assert.equal err, null
+							assert one.name in [ "a","b","c" ]
+						FindOne.findOne( name: "a" ).wait (err, one) ->
+							assert.equal err, null
+							assert.equal one.name, "a"
+					).wait (err) ->
+						assert.equal err, null
+						done()
 
-			toLine: -> "#{@title} by #{@author} (#{@views} views)"
-			toString: ->
-				@views += 1
-				"""
-					#{@title}
-					---------
-					#{@body}
-					-- by #{@author} (#{@views} views)
-				"""
+			it "update", (done) ->
+				class Update extends Document("updates")
+					constructor: (props) -> $.extend @, props
 
-		BlogPost.remove( title: /^First/ ).wait (err, removed) ->
-			$.log "removed:", err ? removed
-			BlogPost.getOrCreate( title: "Second Article" ).wait (err, doc) ->
-				return $.log(err) if err
-				try $.log "type:", $.type(doc), doc.constructor.name
-				doc.author = "Jane Doe"
-				doc.body = "This is another article from a totally different perspective."
-				doc.save().wait (err, saved) ->
-					return $.log(err) if err
-					BlogPost.findOne(author: "Jane Doe").wait (err, doc) ->
-						return $.log(err) if err
-						console.log doc.toString()
+				Update.remove({}).wait (err, result) ->
+					$.Promise.compose(
+						new Update( name: "a" ).save()
+						new Update( name: "b" ).save()
+						new Update( name: "c" ).save()
+					).wait (err) ->
+						assert.equal err, null
+						Update.update({name: "a"}, { $set: { magic: "marker" } }).wait (err, result) ->
+							assert.equal err, null
+							Update.findOne( name: "a" ).wait (err, result) ->
+								assert.equal err, null
+								assert.equal result.magic, "marker"
+								done()
 
-		new BlogPost( title: "Untitled #1", body: "We Are Legion." ).save()
+			describe "save", ->
+				class Saved extends Document("saves")
+					constructor: (props) -> $.extend @, props
 
-		BlogPost.count( author: "Anonymous" ).wait (err, count) ->
-			$.log "Article count:", count
-		
-		BlogPost.find().nextObject (err, obj) ->
-			$.log "The first post:", obj?.toLine()
-		
-		i = 0
-		BlogPost.find( ).each (err, obj) ->
-			console.log "#{++i}.", obj?.toLine()
-		'''
+				it "called on an instance", (done) ->
+					new Saved( name: "a" ).save().wait (err, saved) ->
+						assert.equal err, null
+						assert.equal saved.constructor, Saved
+						assert.equal saved.name, "a"
+						Saved.remove( name: "a" ).wait (err, removed) ->
+							assert.equal err, null
+							assert.equal removed, 1
+							done()
 
+				it "called from the class", (done) ->
+					b = new Saved( name: "b" )
+					Saved.save(b).wait (err, saved) ->
+						assert.equal err, null
+						assert.equal saved._id, b._id # this asserts both that saved is the right object,
+						# and that the _id is written back to b in-place
+						done()
+
+			it "remove", -> # tested elsewhere
+			it "index", -> # tested elsewhere
+			it "unique", -> # tested elsewhere
+			describe "find", ->
+				class Hay extends Document("haystack")
+					@unique { name: 1 }
+					constructor: (props) -> $.extend @, props
+
+				it "nextObject", (done) ->
+					Hay.remove({}).wait (err) ->
+						assert.equal err, null
+						$.Promise.compose(
+							new Hay( name: "needle" ).save(),
+							(new Hay( name: $.random.string 32 ).save() for _ in [0...10])...
+						).wait (err) ->
+							assert.equal err, null
+							cursor = Hay.find( name: "needle" )
+							assert 'nextObject' of cursor
+							cursor.nextObject (err, obj) ->
+								assert.equal err, null
+								done()
+
+				it "each", (done) ->
+					Hay.remove({}).wait (err) ->
+						assert.equal err, null
+						$.Promise.compose(
+							new Hay( name: "needle" ).save(),
+							(new Hay( name: $.random.string 32 ).save() for _ in [0...10])...
+						).wait (err) ->
+							assert.equal err, null
+							cursor = Hay.find( name: /^n/ )
+							cursor.each (err, item) ->
+								assert /^n/.test item.name
+								if cursor.position is cursor.length
+									done()
+
+				it "toArray", (done) ->
+					Hay.remove({}).wait (err) ->
+						assert.equal err, null
+						$.Promise.compose(
+							new Hay( name: "needle" ).save(),
+							(new Hay( name: $.random.string 32 ).save() for _ in [0...10])...
+						).wait (err) ->
+							assert.equal err, null
+							cursor = Hay.find( name: /^n/ )
+							cursor.toArray (err, items) ->
+								assert items.length > 0
+								for item in items
+									assert /^n/.test item.name
+								done()
