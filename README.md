@@ -13,9 +13,11 @@ class MyDocument extends Document("my_collection")
 
 Document.connect "mongodb://..."
 
-new MyDocument( title: "My First Document" ).save()
-
-MyDocument.getOrCreate( title: "My First Document" ).wait (err, doc) ->
-  doc.jazz() # hands!
+doc = new MyDocument( title: "Manifesto" )
+doc.author = "Anonymous"
+doc.save().wait ->
+  MyDocument.getOrCreate( title: "Manifesto" ).wait (err, doc) ->
+    doc.author # "Anonymous", from the database
+    doc.jazz() # "hands!", from the prototype
 
 ```
