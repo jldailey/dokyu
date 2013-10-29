@@ -1,4 +1,4 @@
-Document = require "../index"
+Document = require "../document"
 assert = require "assert"
 $ = require 'bling'
 
@@ -6,12 +6,12 @@ describe "Document", ->
 
 	Document.connect "mongodb://localhost:27017/document_test"
 	
-	it "can set namespaced connections", ->
+	it ".connect(ns, url)", ->
 		Document.connect "beta", "mongodb://localhost:27017/beta"
 
-	describe "sub-classes", ->
+	describe "class extends Document(collection)", ->
 
-		it "put documents in a collection", (done) ->
+		it "stores objects in a collection", (done) ->
 			class BasicDocument extends Document("basic")
 				constructor: (props) -> $.extend @, props
 
@@ -21,7 +21,7 @@ describe "Document", ->
 				assert.equal saved.magic, "marker"
 				done()
 
-		it "allows indexing", (done) ->
+		it ".unique, .index", (done) ->
 			class Unique extends Document("uniques")
 				@unique { special: 1 }
 				constructor: (props) -> $.extend @, props
@@ -35,20 +35,27 @@ describe "Document", ->
 				assert.equal err.code, 11000
 				done()
 
-		it "honors the constructor", (done) ->
+		describe "uses the constructor", ->
 			class Constructed extends Document("constructs")
 				constructor: (props) ->
 					@jazz = -> "hands!"
 					$.extend @, props
+			it "when saving objects", (done) ->
+				new Constructed( name: "Jesse" ).save().wait (err, doc) ->
+					throw err if err
+					assert.equal doc.constructor, Constructed
+					assert.equal doc.name, "Jesse"
+					assert.equal doc.jazz(), "hands!"
+					done()
+			it "when fetching objects", (done) ->
+				Constructed.findOne( name: "Jesse" ).wait (err, doc) ->
+					throw err if err
+					assert.equal doc.constructor, Constructed
+					assert.equal doc.name, "Jesse"
+					assert.equal doc.jazz(), "hands!"
+					done()
 
-			Constructed.getOrCreate( name: "Jesse" ).wait (err, doc) ->
-				throw err if err
-				assert.equal doc.constructor, Constructed
-				assert.equal doc.name, "Jesse"
-				assert.equal doc.jazz(), "hands!"
-				done()
-
-		describe "proxy basic operations", ->
+		describe "static database operations:", ->
 			it "count", (done) ->
 				class Counted extends Document("counted")
 					@unique { name: 1 }
@@ -107,7 +114,7 @@ describe "Document", ->
 				class Saved extends Document("saves")
 					constructor: (props) -> $.extend @, props
 
-				it "called on an instance", (done) ->
+				it "MyDocument.save(obj)", (done) ->
 					new Saved( name: "a" ).save().wait (err, saved) ->
 						assert.equal err, null
 						assert.equal saved.constructor, Saved
@@ -117,7 +124,7 @@ describe "Document", ->
 							assert.equal removed, 1
 							done()
 
-				it "called from the class", (done) ->
+				it "MyDocument::save()", (done) ->
 					b = new Saved( name: "b" )
 					Saved.save(b).wait (err, saved) ->
 						assert.equal err, null
@@ -125,7 +132,7 @@ describe "Document", ->
 						# and that the _id is written back to b in-place
 						done()
 
-			it "remove", -> # tested elsewhere
+			it "remove"
 			it "index", -> # tested elsewhere
 			it "unique", -> # tested elsewhere
 			describe "find", ->
@@ -133,7 +140,7 @@ describe "Document", ->
 					@unique { name: 1 }
 					constructor: (props) -> $.extend @, props
 
-				it "nextObject", (done) ->
+				it "Cursor::nextObject", (done) ->
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
@@ -147,7 +154,7 @@ describe "Document", ->
 								assert.equal err, null
 								done()
 
-				it "each", (done) ->
+				it "Cursor::each", (done) ->
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
@@ -161,7 +168,7 @@ describe "Document", ->
 								if cursor.position is cursor.length
 									done()
 
-				it "toArray", (done) ->
+				it "Cursor::toArray", (done) ->
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
