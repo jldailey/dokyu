@@ -27,6 +27,8 @@ exports.db = db = (ns = "/") ->
 		# Wrap the native operations in Promises
 		wrapped = (_op) -> (args...) ->
 			q = $.Promise()
+			unless ns of connections
+				throw new Error("namespace not connected: #{ns}")
 			connections[ns].wait (err, nativ) ->
 				if err then q.fail err
 				else nativ.collection(_coll)[_op] args..., (err, result) ->
