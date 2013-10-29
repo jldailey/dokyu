@@ -1,18 +1,16 @@
 {
   "name": "document",
   "version": "0.0.0",
-  "description": "ORM",
-  "main": "index.coffee",
+  "description": "A little orm for mongodb",
+  "main": "document.coffee",
   "dependencies": {
     "bling": "~0.2.9",
-    "mongodb": "~1.3.19"
-  },
-  "devDependencies": {
+    "mongodb": "~1.3.19",
     "coffee-script": "~1.6.3"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "make test"
   },
-  "author": "",
-  "license": "BSD-2-Clause"
+  "author": "Jesse Dailey <jesse.dailey@gmail.com>",
+  "license": "MIT"
 }
