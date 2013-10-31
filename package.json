@@ -1,6 +1,6 @@
 {
-  "name": "document",
-  "version": "0.0.0",
+  "name": "dokyu",
+  "version": "0.0.1",
   "description": "A little orm for mongodb",
   "main": "document.coffee",
   "dependencies": {

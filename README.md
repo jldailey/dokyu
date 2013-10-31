@@ -1,5 +1,5 @@
-document.coffee
-===============
+dokyu
+=====
 
 A toy ORM for mongodb.
 
