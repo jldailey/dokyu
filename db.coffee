@@ -1,3 +1,7 @@
+
+# Our very own tiny database layer.
+# Wraps MongoClient in a layer of Bling's Promises.
+
 MongoClient = require('mongodb').MongoClient
 $ = require 'bling'
 
@@ -13,58 +17,34 @@ $.type.register 'cursor', {
 	string: (o) -> "Cursor(#{o.totalNumberOfRecords})"
 }
 
-routes = { }
-connections = { }
-connect = (url) ->
-	p = $.Promise()
-	MongoClient.connect url, { safe: true }, (err, nativ) ->
-		if err then p.fail err
-		else p.finish nativ
-	p
+connections = {}
 
-exports.db = db = (ns = "/") ->
+# db is the public way to construct a db object,
+# expects to (eventually) use a promise from the connections map
+db = (ns = "/") ->
 	collection: (_coll) ->
-		# Wrap the native operations in Promises
-		wrapped = (_op) -> (args...) ->
-			q = $.Promise()
-			unless ns of connections
-				throw new Error("namespace not connected: #{ns}")
-			connections[ns].wait (err, nativ) ->
-				if err then q.fail err
-				else nativ.collection(_coll)[_op] args..., (err, result) ->
-					if err then q.fail err
-					else q.finish result
-			q
-		findOne:     wrapped 'findOne'
-		find:        wrapped 'find'
-		count:       wrapped 'count'
-		insert:      wrapped 'insert'
-		update:      wrapped 'update'
-		save:        wrapped 'save'
-		remove:      wrapped 'remove'
-		ensureIndex: wrapped 'ensureIndex'
+		o = (_op) -> (args...) -> # wrap a native operation with a promise
+			try p = $.Promise()
+			finally unless ns of connections then p.fail "namespace not connected: #{ns}"
+			else
+				fail_or = (pass) -> (e, r) -> if e then p.fail e else pass r
+				connections[ns].wait fail_or (_db) ->
+					_db.collection(_coll)[_op] args..., fail_or p.finish
+		# Support these native operations:
+		findOne:     o 'findOne'
+		find:        o 'find'
+		count:       o 'count'
+		insert:      o 'insert'
+		update:      o 'update'
+		save:        o 'save'
+		remove:      o 'remove'
+		ensureIndex: o 'ensureIndex'
 
 db.connect = (args...) ->
 	url = args.pop()
 	ns = if args.length then args.pop() else "/"
-	connections[ns] = connect routes[ns] = url
+	connections[ns] = $.extend ($.Promise.wrap MongoClient.connect, url, { safe: true }),
+		ns: ns
+		url: url
 
-if require.main is module
-
-	# set the default connection
-	db.connect "mongodb://localhost:27017/default"
-
-	# set up a test connection
-	db.connect "test", "mongodb://localhost:27017/test"
-
-	$.Promise.compose(
-		# use the default connection
-		db().collection("documents").count().wait (err, count) ->
-			$.log "default.documents count:", err ? count
-		
-		# use the test connection
-		db("test").collection("document").count().wait (err, count) ->
-			$.log "test.documents count:", err ? count
-	).wait (err) ->
-		process.exit if err then 1 else 0
-		
+module.exports.db = db
