@@ -1,4 +1,4 @@
-Document = require "../document"
+Document = require "../dokyu"
 assert = require "assert"
 $ = require 'bling'
 
@@ -13,7 +13,6 @@ describe "Document", ->
 
 		it "stores objects in a collection", (done) ->
 			class BasicDocument extends Document("basic")
-				constructor: (props) -> $.extend @, props
 
 			new BasicDocument( magic: "marker" ).save().wait (err, saved) ->
 				assert '_id' of saved, "_id of saved"
@@ -24,7 +23,6 @@ describe "Document", ->
 		it ".unique, .index", (done) ->
 			class Unique extends Document("uniques")
 				@unique { special: 1 }
-				constructor: (props) -> $.extend @, props
 
 			$.Promise.compose(
 				new Unique( special: "one" ).save()
@@ -38,8 +36,8 @@ describe "Document", ->
 		describe "uses the constructor", ->
 			class Constructed extends Document("constructs")
 				constructor: (props) ->
+					super(props)
 					@jazz = -> "hands!"
-					$.extend @, props
 			it "when saving objects", (done) ->
 				new Constructed( name: "Jesse" ).save().wait (err, doc) ->
 					throw err if err
@@ -59,7 +57,6 @@ describe "Document", ->
 			it "count", (done) ->
 				class Counted extends Document("counted")
 					@unique { name: 1 }
-					constructor: (props) -> $.extend @, props
 
 				$.Promise.compose(
 					Counted.getOrCreate( name: "one" )
@@ -73,7 +70,6 @@ describe "Document", ->
 
 			it "findOne", (done) ->
 				class FindOne extends Document("findOne")
-					constructor: (props) -> $.extend @, props
 
 				$.Promise.compose(
 					FindOne.getOrCreate( name: "a" )
@@ -94,7 +90,6 @@ describe "Document", ->
 
 			it "update", (done) ->
 				class Update extends Document("updates")
-					constructor: (props) -> $.extend @, props
 
 				Update.remove({}).wait (err, result) ->
 					$.Promise.compose(
@@ -112,7 +107,6 @@ describe "Document", ->
 
 			describe "save", ->
 				class Saved extends Document("saves")
-					constructor: (props) -> $.extend @, props
 
 				it "MyDocument.save(obj)", (done) ->
 					new Saved( name: "a" ).save().wait (err, saved) ->
@@ -138,7 +132,6 @@ describe "Document", ->
 			describe "find", ->
 				class Hay extends Document("haystack")
 					@unique { name: 1 }
-					constructor: (props) -> $.extend @, props
 
 				it "Cursor::nextObject", (done) ->
 					Hay.remove({}).wait (err) ->
@@ -164,6 +157,7 @@ describe "Document", ->
 							assert.equal err, null
 							cursor = Hay.find( name: /^n/ )
 							cursor.each (err, item) ->
+								assert.equal err, null
 								assert /^n/.test item.name
 								if cursor.position is cursor.length
 									done()
