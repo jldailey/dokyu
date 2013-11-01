@@ -10,7 +10,8 @@ all:
 test: $(PASS_FILES)
 
 test/%.pass: test/% $(COFFEE_FILES) $(MOCHA) $(COFFEE) Makefile
-	$(MOCHA) $(MOCHA_OPTS) $< && touch $@
+	@echo Running $<...
+	@$(MOCHA) $(MOCHA_OPTS) $< && touch $@
 
 $(MOCHA):
 	npm install mocha
