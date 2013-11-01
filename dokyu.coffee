@@ -6,11 +6,11 @@ Document = (collection, doc_opts) ->
 		timeout: 1000
 		collection: collection
 	}, doc_opts
-	return class Document
+	return class InnerDocument
 
 		constructor: (props) -> $.extend @, props
 
-		Document.getOrCreate = (query) ->
+		InnerDocument.getOrCreate = (query) ->
 			klass = @
 			try p = $.Promise()
 			finally
@@ -33,20 +33,20 @@ Document = (collection, doc_opts) ->
 		# e.g. MyDocument.findOne(query) searches the right collection,
 		# and returns MyDocument objects. MyDocument.find(query)
 		# returns a cursor that yields MyDocuments.
-		o = (_op) -> (args...) ->
+		o = (_op, no_result=false) -> (args...) ->
 			klass = @
-			try p = $.Promise()
+			try p = $.Promise().wait (err, result) -> $.log "promise to #{_op} on #{collection} finished, id:", p.promiseId
 			finally
 				to = $.delay doc_opts.timeout, -> p.fail('timeout')
 				db().collection(collection)[_op](args...).wait (err, result) ->
 					to.cancel()
 					return p.fail(err) if err
-					return p.fail("no result") unless result?
-					p.finish inherit klass, result
+					return p.finish inherit klass, result if result?
+					if no_result then p.fail "no result"
 
-		$.extend Document,
+		$.extend InnerDocument,
 			count:   o 'count'
-			findOne: o 'findOne'
+			findOne: o 'findOne', true
 			update:  o 'update'
 			remove:  o 'remove'
 			save:    o 'save'
@@ -64,8 +64,7 @@ Document = (collection, doc_opts) ->
 				fail_or = (cb, f) -> (e,r) -> if e then cb(e) else f r
 				finish = (cb, obj) ->
 					if (i = inherit klass, obj)? then cb(null, i)
-					else cb("no result")
-				oo = (_op, touch) -> (args...) ->
+				oo = (_op, swallow, touch) -> (args...) ->
 					kursor = @
 					cb = args.pop()
 					cursor_promise.wait fail_or cb, (cursor) ->
@@ -73,15 +72,15 @@ Document = (collection, doc_opts) ->
 							kursor.length = cursor.totalNumberOfRecords
 							kursor.position += 1
 							touch? kursor, result
-							finish cb, result
+							if result? then finish cb, result
+							else unless swallow then cb "no result", null
+							else null
 				# Return a fake cursor that yields the right type
 				length: 0
 				position: 0
-				nextObject: oo 'nextObject'
-				each:       oo 'each'
-				toArray:    oo 'toArray', (kursor) -> kursor.position = kursor.length
-					
-
+				nextObject: oo 'nextObject', false
+				each:       oo 'each',       true
+				toArray:    oo 'toArray',    false, (kursor) -> kursor.position = kursor.length
 
 		save: ->
 			db().collection(collection).save(@).wait (err, saved) =>
@@ -90,6 +89,8 @@ Document = (collection, doc_opts) ->
 		remove: ->
 			db().collection(collection).remove( _id: @_id )
 
-Document.connect = (args...) -> db.connect args...
+Document.connect = (args...) ->
+	db.connect args...
+	Document
 
 module.exports= Document
