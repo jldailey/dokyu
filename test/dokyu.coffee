@@ -84,8 +84,10 @@ describe "Document", ->
 						FindOne.findOne( name: "a" ).wait (err, one) ->
 							assert.equal err, null
 							assert.equal one.name, "a"
+						FindOne.findOne( name: "d" ).wait (err) ->
+							assert.equal err, "no result"
 					).wait (err) ->
-						assert.equal err, null
+						assert.equal err, "no result"
 						done()
 
 			it "update", (done) ->
@@ -126,7 +128,21 @@ describe "Document", ->
 						# and that the _id is written back to b in-place
 						done()
 
-			it "remove"
+			it "remove", (done) ->
+				class Remove extends Document("removed")
+
+				$.Promise.compose(
+					(new Remove( name: "a" + $.random.string 16 ).save() for _ in [0...3])...
+				).wait (err) ->
+					assert.equal err, null
+					Remove.remove( name: /^a/ ).wait (err, removed) ->
+						assert.equal err, null
+						assert.equal removed, 3
+						Remove.count({}).wait (err, count) ->
+							assert.equal err, null
+							assert.equal count, 0
+							done()
+
 			it "index", -> # tested elsewhere
 			it "unique", -> # tested elsewhere
 			describe "find", ->
@@ -152,7 +168,7 @@ describe "Document", ->
 						assert.equal err, null
 						$.Promise.compose(
 							new Hay( name: "needle" ).save(),
-							(new Hay( name: $.random.string 32 ).save() for _ in [0...10])...
+							(new Hay( name: $.random.string 32 ).save() for _ in [0...22])...
 						).wait (err) ->
 							assert.equal err, null
 							cursor = Hay.find( name: /^n/ )
