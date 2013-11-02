@@ -14,10 +14,12 @@ Document = (collection, doc_opts) ->
 			klass = @
 			try p = $.Promise()
 			finally
-				fail_or = (f) -> (e, r) -> if e then p.fail(e) else f r
+				fail_or = (f) -> (e, r) ->
+					return p.fail(e) if e
+					try f(r) catch err then p.fail(err)
 				db().collection(collection).findOne(query).wait fail_or (result) ->
 					if result? then p.finish new klass result
-					else new klass(query).save fail_or p.finish
+					else new klass(query).save().wait fail_or p.finish
 
 		# make all the stuff inherit from a type, as much as possible; in-place
 		inherit = (klass, stuff) ->
@@ -35,7 +37,7 @@ Document = (collection, doc_opts) ->
 		# returns a cursor that yields MyDocuments.
 		o = (_op, no_result=false) -> (args...) ->
 			klass = @
-			try p = $.Promise().wait (err, result) -> $.log "promise to #{_op} on #{collection} finished, id:", p.promiseId
+			try p = $.Promise() # .wait (err, result) -> $.log "promise to #{_op} on #{collection} finished, id:", p.promiseId
 			finally
 				to = $.delay doc_opts.timeout, -> p.fail('timeout')
 				db().collection(collection)[_op](args...).wait (err, result) ->
@@ -61,7 +63,9 @@ Document = (collection, doc_opts) ->
 			find: (query = {}, opts = {}) ->
 				klass = @
 				cursor_promise = db().collection(collection).find(query, opts)
-				fail_or = (cb, f) -> (e,r) -> if e then cb(e) else f r
+				fail_or = (cb, f) -> (e,r) ->
+					return cb(e) if e
+					try f(r) catch err then cb(err)
 				finish = (cb, obj) ->
 					if (i = inherit klass, obj)? then cb(null, i)
 				oo = (_op, swallow, touch) -> (args...) ->
