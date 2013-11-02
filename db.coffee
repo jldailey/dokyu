@@ -27,7 +27,10 @@ db = (ns = "/") ->
 			try p = $.Promise()
 			finally unless ns of connections then p.fail "namespace not connected: #{ns}"
 			else
-				fail_or = (pass) -> (e, r) -> if e then p.fail e else pass r
+				fail_or = (pass) -> (e, r) ->
+					return p.fail(e) if e
+					try pass(r) catch err
+						$.log "During #{_op}", err.stack
 				connections[ns].wait fail_or (_db) ->
 					_db.collection(_coll)[_op] args..., fail_or p.finish
 		# Support these native operations:
@@ -43,7 +46,7 @@ db = (ns = "/") ->
 db.connect = (args...) ->
 	url = args.pop()
 	ns = if args.length then args.pop() else "/"
-	connections[ns] = $.extend ($.Promise.wrap MongoClient.connect, url, { safe: true }),
+	connections[ns] = $.extend ($.Promise.wrapCall MongoClient.connect, url, { safe: true }),
 		ns: ns
 		url: url
 
