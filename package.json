@@ -1,12 +1,12 @@
 {
   "name": "dokyu",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A little orm for mongodb",
-  "main": "document.coffee",
+  "main": "dokyu.coffee",
   "dependencies": {
-    "bling": "latest",
+    "bling": "0.3.2",
     "mongodb": "latest",
-    "coffee-script": "latest"
+    "coffee-script": "1.6.3"
   },
   "scripts": {
     "test": "make test"
