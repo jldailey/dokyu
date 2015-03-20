@@ -28,7 +28,7 @@ doc.save().wait ->
 API
 ===
 
-Some short-hand notation: A 'Promise(err, x)' is a Promise you use with `.wait (err, x) ->`
+Notice: Some short-hand notation used in this document, a 'Promise(err, x)' means a Promise you use with `.wait (err, x) ->`
 
 * __Document.connect( [name], url )__
 
