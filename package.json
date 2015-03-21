@@ -4,9 +4,9 @@
   "description": "A little orm for mongodb",
   "main": "dokyu.coffee",
   "dependencies": {
-    "bling": "0.3.2",
+    "bling": "latest",
     "mongodb": "latest",
-    "coffee-script": "1.6.3"
+    "coffee-script": "latest"
   },
   "scripts": {
     "test": "make test"
