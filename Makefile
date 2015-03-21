@@ -1,17 +1,15 @@
 COFFEE=node_modules/.bin/coffee
 MOCHA=node_modules/.bin/mocha
-MOCHA_OPTS=--compilers coffee:coffee-script/register --globals document,window,Bling,$$,_ -R spec --bail
+MOCHA_REPORTER?=spec
+MOCHA_OPTS=--compilers coffee:coffee-script/register --globals document,window,Bling,$$,_ -R ${MOCHA_REPORTER} --bail
 
 COFFEE_FILES=dokyu.coffee db.coffee
-PASS_FILES=test/dokyu.coffee.pass
+TEST_FILES=test/dokyu.coffee
 
 all:
 
-test: $(PASS_FILES)
-
-test/%.pass: test/% $(COFFEE_FILES) $(MOCHA) $(COFFEE) Makefile
-	@echo Running $<...
-	@$(MOCHA) $(MOCHA_OPTS) $< && touch $@
+test: ${COFFEE_FILES} ${TEST_FILES}
+	@$(MOCHA) $(MOCHA_OPTS)
 
 $(MOCHA):
 	npm install mocha
@@ -19,3 +17,4 @@ $(MOCHA):
 $(COFFEE):
 	npm install coffee-script
 
+.PHONY: test
