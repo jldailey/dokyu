@@ -1,4 +1,4 @@
-Document = require "../dokyu"
+Document = require "../lib/dokyu"
 assert = require "assert"
 $ = require 'bling'
 
