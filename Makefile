@@ -11,10 +11,10 @@ all: ${JS_FILES}
 	@echo "Done."
 
 lib/%.js: src/%.coffee
-	@echo -n $< '> '
+	@echo $< '>' $@
 	@mkdir -p $(shell dirname $@) && sed -e 's/# .*$$//' $< | cpp -w | ${COFFEE} -sc > $@
 
-test: ${COFFEE_FILES} ${TEST_FILES}
+test: ${JS_FILES} ${TEST_FILES}
 	@${MOCHA} ${MOCHA_OPTS}
 
 ${MOCHA}:
