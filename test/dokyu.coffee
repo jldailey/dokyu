@@ -5,9 +5,10 @@ $ = require 'bling'
 describe "Document", ->
 
 	Document.connect "mongodb://localhost:27017/document_test"
-	
-	it ".connect(ns, url)", ->
-		Document.connect "beta", "mongodb://localhost:27017/beta"
+
+	describe ".connect", ->
+		it "supports namespaced connections", ->
+			Document.connect "beta", "mongodb://localhost:27017/beta"
 
 	describe "class extends Document(collection)", ->
 
@@ -20,25 +21,28 @@ describe "Document", ->
 				assert.equal saved.magic, "marker"
 				done()
 
-		it ".unique, .index", (done) ->
-			class Unique extends Document("uniques")
-				@unique { special: 1 }
+		describe ".unique, .index", ->
+			it "ensures indexes and constraints", (done) ->
+				class Unique extends Document("uniques")
+					@unique { special: 1 }
 
-			$.Promise.compose(
-				new Unique( special: "one" ).save()
-				new Unique( special: "two" ).save()
-				new Unique( special: "one" ).save()
-			).wait (err) ->
-				# err should be a duplicate key error from the "one"s
-				assert.equal err.code, 11000
-				done()
+				p = Unique.remove({}).wait (err) ->
+					if err then return done err
+					new Unique( special: "one" ).save().wait (err) ->
+						if err then return done err
+						new Unique( special: "two" ).save().wait (err) ->
+							if err then return done err
+							new Unique( special: "one" ).save().wait (err) ->
+								# err should be a duplicate key error from the "one"s
+								assert.equal err?.code, 11000
+								done()
 
 		describe "uses the constructor", ->
-			class Constructed extends Document("constructs")
-				constructor: (props) ->
-					super(props)
-					@jazz = -> "hands!"
 			it "when saving objects", (done) ->
+				class Constructed extends Document("constructs")
+					constructor: (props) ->
+						super(props)
+						@jazz = -> "hands!"
 				new Constructed( name: "Jesse" ).save().wait (err, doc) ->
 					throw err if err
 					assert.equal doc.constructor, Constructed
@@ -46,6 +50,10 @@ describe "Document", ->
 					assert.equal doc.jazz(), "hands!"
 					done()
 			it "when fetching objects", (done) ->
+				class Constructed extends Document("constructs")
+					constructor: (props) ->
+						super(props)
+						@jazz = -> "hands!"
 				Constructed.findOne( name: "Jesse" ).wait (err, doc) ->
 					throw err if err
 					assert.equal doc.constructor, Constructed
@@ -85,9 +93,9 @@ describe "Document", ->
 							assert.equal err, null
 							assert.equal one.name, "a"
 						FindOne.findOne( name: "d" ).wait (err) ->
-							assert.equal err, "no result"
+							assert.equal err.message, "no result"
 					).wait (err) ->
-						assert.equal err, "no result"
+						assert.equal err.message, "no result"
 						done()
 
 			it "update", (done) ->
@@ -108,9 +116,9 @@ describe "Document", ->
 								done()
 
 			describe "save", ->
-				class Saved extends Document("saves")
 
 				it "MyDocument.save(obj)", (done) ->
+					class Saved extends Document("saves")
 					new Saved( name: "a" ).save().wait (err, saved) ->
 						assert.equal err, null
 						assert.equal saved.constructor, Saved
@@ -121,6 +129,7 @@ describe "Document", ->
 							done()
 
 				it "MyDocument::save()", (done) ->
+					class Saved extends Document("saves")
 					b = new Saved( name: "b" )
 					Saved.save(b).wait (err, saved) ->
 						assert.equal err, null
@@ -146,10 +155,10 @@ describe "Document", ->
 			it "index", -> # tested elsewhere
 			it "unique", -> # tested elsewhere
 			describe "find", ->
-				class Hay extends Document("haystack")
-					@unique { name: 1 }
 
 				it "Cursor::nextObject", (done) ->
+					class Hay extends Document("haystack")
+						@unique { name: 1 }
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
@@ -161,9 +170,12 @@ describe "Document", ->
 							assert 'nextObject' of cursor
 							cursor.nextObject (err, obj) ->
 								assert.equal err, null
+								assert.equal obj.name, "needle"
 								done()
 
 				it "Cursor::each", (done) ->
+					class Hay extends Document("haystack")
+						@unique { name: 1 }
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
@@ -179,6 +191,8 @@ describe "Document", ->
 									done()
 
 				it "Cursor::toArray", (done) ->
+					class Hay extends Document("haystack")
+						@unique { name: 1 }
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
@@ -192,3 +206,47 @@ describe "Document", ->
 								for item in items
 									assert /^n/.test item.name
 								done()
+
+		describe "joins", ->
+			it "lets one document come from two collections", (done) ->
+				class A extends Document("As")
+					@join 'b', 'Bs', 'one'
+
+				class B extends Document("Bs")
+					constructor: (@name) ->
+
+				a = new A()
+				a.ready.then ->
+					a.b = new B("Groot")
+					assert.equal a.b.name, "Groot"
+					a.save().wait (err) ->
+						assert.equal err, null
+						assert.equal a.b?.name, "Groot"
+						done()
+
+			it "lets you join arrays onto a document", (done) ->
+				class AA extends Document("AAs")
+					@join 'b', 'BBs', 'all'
+
+				class BB extends Document("BBs")
+
+				a = new AA
+				a.ready.then ->
+					a.b.push new BB name: "Groot"
+					a.b.push new BB name: "Broot"
+					assert.equal a.b[0].name, "Groot"
+					assert.equal a.b[1].name, "Broot"
+					assert.equal $(a.b).select("_id").filter(undefined, false).length, 0
+					a.save().wait (err) ->
+						assert.equal err, null
+						assert.equal a.b?.length, 2
+						assert.equal $(a.b).select("_id").filter(undefined, false).length, 2
+						assert.deepEqual $(a.b).select("doc_id.toString").call(), $(a, a).select("_id.toString").call()
+						AA.getOrCreate({ _id: a._id }).wait (err, doc) ->
+							assert.equal err, null
+							assert.equal doc.b?.length, 2
+							assert.equal doc.b[0].name, "Groot"
+							assert.equal doc.b[1].name, "Broot"
+							assert.equal $(doc.b).select("_id").filter(undefined, false).length, 2
+							assert.deepEqual $(doc.b).select("doc_id.toString").call(), $(a, a).select("_id.toString").call()
+							done()
