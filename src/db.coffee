@@ -2,13 +2,14 @@
 # Our very own tiny database layer.
 # Wraps MongoClient in a layer of Bling's Promises.
 
-MongoClient = require('mongodb').MongoClient
 $ = require 'bling'
+Mongo = require 'mongodb'
+{MongoClient, ObjectID} = Mongo
 
 # teach bling how to deal with some mongo objects
 $.type.register 'ObjectId',
-	is: (o) -> o?._bsontype is "ObjectID"
-	string: (o) -> o.toHexString()
+	is: (o) -> o and o._bsontype is "ObjectID"
+	string: (o) -> (o and o.toHexString()) or String(o)
 	repr: (o) -> "ObjectId('#{o.toHexString()}')"
 
 $.type.register 'cursor',
@@ -26,6 +27,8 @@ db = (ns = default_namespace) ->
 		log = $.logger "[db/#{_coll}]"
 		o = (_op) -> (args...) -> # wrap a native operation with a promise
 			p = $.Promise()
+			if $.is 'function', $(args).last()
+				p.wait args.pop()
 			unless ns of connections then p.fail "namespace not connected: #{ns}"
 			else
 				id = p.promiseId
@@ -36,7 +39,6 @@ db = (ns = default_namespace) ->
 				connections[ns].wait fail_or (_db) ->
 					_db.collection(_coll)[_op] args..., fail_or (result) ->
 						p.finish result
-			# log "returning", p
 			return p
 		# Wrap these native operations:
 		findOne:     o 'findOne'
@@ -58,5 +60,6 @@ db.connect = (args...) ->
 db.disconnect = (ns = default_namespace) ->
 	connections[ns]?.then (_db) -> _db.close()
 
+db.ObjectId = Mongo.ObjectID
 
 module.exports.db = db
