@@ -171,11 +171,8 @@ Document = (collection, doc_opts) ->
 					if j >= joins.length
 						# save_log "done saving all joins, saving self...", self, doc_opts.ns, doc_opts.collection
 						return db(doc_opts.ns).collection(doc_opts.collection).save(self).wait (err) ->
-							if err
-								p.reject err
-							else
-								# save_log "resolving promise", p.promiseId, "_id", self._id
-								p.resolve $.extend self, detached
+							if err then p.reject err
+							else p.resolve $.extend self, detached
 					[name, coll, type] = joins[j]
 					do (name, coll, type) ->
 						switch type
