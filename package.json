@@ -1,18 +1,18 @@
 {
-  "name": "dokyu",
-  "version": "0.1.1",
-  "description": "A little orm for mongodb",
-  "main": "lib/dokyu.js",
-  "dependencies": {
-    "bling": "latest",
-    "mongodb": "latest"
+	"name": "dokyu",
+	"version": "0.1.1",
+	"description": "A little orm for mongodb",
+	"main": "lib/dokyu.js",
+	"dependencies": {
+		"bling": "latest",
+		"mongodb": "latest"
 	},
 	"devDependencies": {
-    "coffee-script": "latest"
-  },
-  "scripts": {
-    "test": "make test"
-  },
-  "author": "Jesse Dailey <jesse.dailey@gmail.com>",
-  "license": "MIT"
+		"coffee-script": "latest"
+	},
+	"scripts": {
+		"test": "make test"
+	},
+	"author": "Jesse Dailey <jesse.dailey@gmail.com>",
+	"license": "MIT"
 }
