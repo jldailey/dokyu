@@ -1,6 +1,8 @@
 $ = require 'bling'
 {db} = require './db'
 
+#define GB(n) (n*1024*1024*1024)
+
 createObjectId = -> db.ObjectId.createPk()
 
 classes = {}
@@ -11,7 +13,7 @@ Document = (collection, doc_opts) ->
 		collection: collection
 		ns: undefined
 	}, doc_opts
-	return classes[doc_opts.collection] or= class InnerClass
+	return classes[doc_opts.collection] or= class InnerClass extends $.EventEmitter
 
 		log = $.logger "[#{doc_opts.collection}]"
 
@@ -22,10 +24,12 @@ Document = (collection, doc_opts) ->
 		# the default constructor gets used to build instances,
 		# given a result document from the database
 		constructor: (props) ->
+			super @
 			$.extend @, props, # add the database fields to this instance
 				ready: $.Promise() # and add a promise that indicates completion of all joins
 			@_id ?= createObjectId()
-			progress = $.Progress 1 + joins.length
+			progress = $.Progress 2 + joins.length # 2 = 1 for the joins, and 1 for the collection creation
+			InnerClass.ready.wait -> progress.finish 1
 			fail_or = (f) -> (err, result) ->
 				if err then return progress.reject err
 				else f(result)
@@ -36,6 +40,11 @@ Document = (collection, doc_opts) ->
 				klass = classes[coll] # the wrapper class for objects from this collection
 				coll = db(doc_opts.ns).collection(coll)
 				switch type
+					when 'tailable'
+						query = { parent: @_id }
+						coll.stream query, (err, doc) =>
+							unless err then @emit name, doc
+						progress.finish(1)
 					when 'array'
 						query = { parent: @_id }
 						fields = { }
@@ -75,6 +84,14 @@ Document = (collection, doc_opts) ->
 				else new klass(query).save().wait p.handler
 			p
 
+		# the basic promise that the collection backing the type has been created
+		InnerClass.ready = $.Progress(1).wait (err) ->
+			$.log "InnerClass: ready all", err
+
+		$.immediate ->
+			$.log "InnerClass: ready finish one"
+			InnerClass.ready.finish 1
+
 		# construct all the stuff from a type, recursively
 		construct = (klass, stuff) ->
 			stuff = switch $.type stuff
@@ -113,13 +130,21 @@ Document = (collection, doc_opts) ->
 			index:   o 'ensureIndex'
 			# save:    o 'save' # not join safe at the moment
 			unique: (keys) -> @index keys, { unique: true, dropDups: true }
-			join:   (name, coll, type = 'single') ->
+			join:   (name, coll, type = 'single', opts) ->
 				joins.push [name, coll, type]
 				# make sure the join query will be indexed
-				coll = db(doc_opts.ns).collection(coll)
 				switch type
-					when 'array'  then coll.ensureIndex { parent: 1, index: 1 }
-					when 'object' then coll.ensureIndex { parent: 1 }, {unique: true}
+					when 'array' then db(doc_opts.ns).collection(coll).ensureIndex { parent: 1, index: 1 }, \
+						$.extend {}, opts
+					when 'object' then db(doc_opts.ns).collection(coll).ensureIndex { parent: 1 }, \
+						$.extend { unique: true }, opts
+					when 'tailable'
+						$.log "save: createCollection", opts = $.extend { capped: true, size: 100000 }, opts
+						InnerClass.ready.include p = $.Promise()
+						db(doc_opts.ns).createCollection coll, opts, (err) ->
+							if err then p.reject "save: createCollection error", err
+							$.log "save: createCollection complete",
+							p.resolve()
 				@
 			# set the default query timeout
 			timeout: (ms) ->
@@ -186,6 +211,8 @@ Document = (collection, doc_opts) ->
 										detached[name] = self[name]
 										self[name] = self[name]._id
 										nextJoin j + 1
+							when 'tailable'
+								return nextJoin j + 1
 							when 'array'
 								a = self[name]
 								detached[name] = new Array(a.length)
@@ -205,8 +232,6 @@ Document = (collection, doc_opts) ->
 								nextJoin j + 1
 						null
 					null
-
-
 
 		remove: ->
 			p = $.Progress(1)
