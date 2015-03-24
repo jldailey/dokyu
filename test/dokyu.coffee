@@ -13,6 +13,9 @@ describe "Document", ->
 			Document.connect "beta", "mongodb://localhost:27017/beta", (err) ->
 
 	describe "class extends Document(collection)", ->
+		it "is an EventEmitter", ->
+			class BasicDocument extends Document("basic")
+			assert.equal $.type(new BasicDocument().on), 'function'
 
 		it "stores objects in a collection", (done) ->
 			class BasicDocument extends Document("basic")
@@ -186,13 +189,16 @@ describe "Document", ->
 					(new Remove( name: "a" + $.random.string 16 ).save() for _ in [0...3])...
 				).wait (err) ->
 					assert.equal err, null
-					Remove.remove( name: /^a/ ).wait (err, removed) ->
+					Remove.count( name: /^a/ ).wait (err, count) ->
 						assert.equal err, null
-						assert.equal removed, 3
-						Remove.count({}).wait (err, count) ->
+						assert.equal count, 3
+						Remove.remove({ name: /^a/ },{ safe: true, multi: true }).wait (err, removed) ->
 							assert.equal err, null
-							assert.equal count, 0
-							done()
+							assert.equal removed, 3
+							Remove.count({}).wait (err, count) ->
+								assert.equal err, null
+								assert.equal count, 0
+								done()
 
 			it "index", -> # tested elsewhere
 			it "unique", -> # tested elsewhere
@@ -292,3 +298,26 @@ describe "Document", ->
 							assert.equal $(doc.b).select("_id").filter(undefined, false).length, 2
 							assert.deepEqual $(doc.b).select("parent.toString").call(), $(a, a).select("_id.toString").call()
 							done()
+
+			it "lets you join a tailable cursor onto an event", (done) ->
+				class Message extends Document('messages')
+
+				class Player extends Document('players')
+					@join 'message', 'messages', 'tailable'
+
+				start = $.now
+				dt = 0
+				magic = null
+				p = new Player( name: "Jesse" )
+				p.save (err) ->
+					p.on 'message', (msg) ->
+						dt = $.now - start
+						magic = msg.magic
+					$.log "TEST: creating new Message..."
+					m = new Message( parent: p._id, magic: "marker" ).save (err) ->
+						$.log "TEST: Message saved...", p._id
+						$.delay 400, ->
+							assert.equal magic, "marker"
+							done()
+
+
