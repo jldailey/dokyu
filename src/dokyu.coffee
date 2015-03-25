@@ -86,10 +86,8 @@ Document = (collection, doc_opts) ->
 
 		# the basic promise that the collection backing the type has been created
 		InnerClass.ready = $.Progress(1).wait (err) ->
-			$.log "InnerClass: ready all", err
 
 		$.immediate ->
-			$.log "InnerClass: ready finish one"
 			InnerClass.ready.finish 1
 
 		# construct all the stuff from a type, recursively
@@ -132,6 +130,7 @@ Document = (collection, doc_opts) ->
 			unique: (keys) -> @index keys, { unique: true, dropDups: true }
 			join:   (name, coll, type = 'single', opts) ->
 				joins.push [name, coll, type]
+				opts ?= { }
 				# make sure the join query will be indexed
 				switch type
 					when 'array' then db(doc_opts.ns).collection(coll).ensureIndex { parent: 1, index: 1 }, \
@@ -139,11 +138,10 @@ Document = (collection, doc_opts) ->
 					when 'object' then db(doc_opts.ns).collection(coll).ensureIndex { parent: 1 }, \
 						$.extend { unique: true }, opts
 					when 'tailable'
-						$.log "save: createCollection", opts = $.extend { capped: true, size: 100000 }, opts
 						InnerClass.ready.include p = $.Promise()
+						$.log "dokyu: createCollection", coll, opts
 						db(doc_opts.ns).createCollection coll, opts, (err) ->
 							if err then p.reject "save: createCollection error", err
-							$.log "save: createCollection complete",
 							p.resolve()
 				@
 			# set the default query timeout
@@ -165,21 +163,24 @@ Document = (collection, doc_opts) ->
 					kursor = @
 					cb = args.pop()
 					cursor_promise.wait fail_or cb, (cursor) ->
-						# $.log "[oo] starting op:", _op, "on cursor", cursor.cursorId.toString()
+						# $.log "[oo] starting op:", _op, "on cursor", $.keysOf(cursor.cursorState)
 						cursor[_op] fail_or cb, (result) ->
-							# $.log "[oo] finished op:", _op, result
-							kursor.length = cursor.totalNumberOfRecords
-							kursor.position += 1
+							# $.log "[oo] finished op:", _op, $.keysOf(result)
 							try touch? kursor, result
 							if result? then finish cb, result
 							else unless swallow then cb "no result", null
 							else null
 				# Return a fake cursor that yields the right type
-				length:     0
-				position:   0
 				nextObject: oo 'nextObject', false
-				each:       oo 'each',       true
 				toArray:    oo 'toArray',    false, (kursor) -> kursor.position = kursor.length
+				each: (cb) ->
+					@nextObject (err, item) =>
+						if err is "no result"
+							cb null, null
+						else
+							cb err, item
+							@each cb
+					null
 
 		# save should be recursive
 		# for every join on this document,

@@ -50,7 +50,7 @@ db = (ns = default_namespace) ->
 				fail_or = (pass) -> (e, r) ->
 					if e then return p.fail(e)
 					try pass(r) catch err
-						log "failed", _op, id, $.debugStack err.stack
+						log "failed in callback", _op, id, $.debugStack err.stack
 				connections[ns].wait fail_or (_db) ->
 					_db.collection(_coll)[_op] args..., fail_or (result) ->
 						p.finish result
@@ -106,7 +106,6 @@ db.connect = (args...) ->
 		if err then p.reject(err) else p.resolve(db)
 	p.wait (err) ->
 		if err then $.log "connection error:", err
-		else $.log "connection complete:", ns
 
 db.disconnect = (ns = default_namespace) ->
 	connections[ns]?.then (_db) -> _db.close()

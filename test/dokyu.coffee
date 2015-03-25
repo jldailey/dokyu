@@ -134,7 +134,8 @@ describe "Document", ->
 							assert.equal saved.name, name
 							Saved.remove( name: name ).wait (err, removed) ->
 								assert.equal err, null
-								assert.equal removed, 1
+								$.log $.keysOf removed
+								assert.equal removed.result.n, 1
 								done()
 					it "can take a callback directly", (done) ->
 						class Saved extends Document("saves")
@@ -146,7 +147,7 @@ describe "Document", ->
 							assert.equal saved.name, name
 							Saved.remove( name: name ).wait (err, removed) ->
 								assert.equal err, null
-								assert.equal removed, 1
+								assert.equal removed.result.n, 1
 								done()
 				describe "from static", ->
 					""" DISABLED
@@ -194,7 +195,6 @@ describe "Document", ->
 						assert.equal count, 3
 						Remove.remove({ name: /^a/ },{ safe: true, multi: true }).wait (err, removed) ->
 							assert.equal err, null
-							assert.equal removed, 3
 							Remove.count({}).wait (err, count) ->
 								assert.equal err, null
 								assert.equal count, 0
@@ -227,16 +227,19 @@ describe "Document", ->
 					Hay.remove({}).wait (err) ->
 						assert.equal err, null
 						$.Promise.compose(
-							new Hay( name: "needle" ).save(),
-							(new Hay( name: $.random.string 32 ).save() for _ in [0...22])...
+							new Hay( name: "needle1" ).save(),
+							new Hay( name: "needle2" ).save(),
+							(new Hay( name: "A" + $.random.string 16).save() for _ in [0...22])...
 						).wait (err) ->
 							assert.equal err, null
 							cursor = Hay.find( name: /^n/ )
 							cursor.each (err, item) ->
 								assert.equal err, null
+								if item is null
+									return done()
 								assert /^n/.test item.name
-								if cursor.position is cursor.length
-									done()
+
+
 
 				it "Cursor::toArray", (done) ->
 					class Hay extends Document("haystack")
