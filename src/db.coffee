@@ -12,8 +12,13 @@ $.type.register 'ObjectId',
 	repr: (o) -> "ObjectId('#{o.toHexString()}')"
 
 $.type.register 'cursor',
-	is: (o) -> o and o.cursorId?
-	string: (o) -> "Cursor(n=#{o?.totalNumberOfRecords})"
+	is: (o) -> o and o.cursorState?
+	string: (o) -> "Cursor(#{$.as 'string', o.cursorState.cursorId})"
+
+$.type.register 'WriteResult',
+	is: (o) -> o and o.result?.ok? and o.connection?
+	string: (o) -> "WriteResult(ok=#{o.result.ok}, n=#{o.result.n})"
+	repr: (o) -> "WriteResult({ ok: #{o.result.ok}, n: #{o.result.n}})"
 
 connections = Object.create null
 collections = Object.create null
@@ -25,17 +30,17 @@ default_namespace = "/"
 db = (ns = default_namespace) ->
 	createCollection: (name, opts, cb) ->
 		key = ns + ":" + name
-		$.log "db: createCollection", key, opts
+		# $.log "db: createCollection", key, opts
 		unless ns of connections then $.log "db: not connected: #{ns}"
 		else if key of collections then $.log "db: createCollection already exists:", name
 		else
-			$.log "db: createCollection",name,"starting to wait..."
+			# $.log "db: createCollection",name,"starting to wait..."
 			connections[ns].wait (err, _db) ->
 				if err then return $.log "db: createCollection error", err
-				$.log "db: createCollection", name, "starting"
+				# $.log "db: createCollection", name, "starting"
 				opts.safe = true
 				_db.createCollection name, opts, (err) ->
-					$.log "db: createCollection", name, "completed"
+					# $.log "db: createCollection", name, "completed"
 					collections[key] = _db.collection(name)
 					cb? err
 	collection: (_coll) ->
@@ -44,15 +49,19 @@ db = (ns = default_namespace) ->
 			p = $.Promise()
 			if $.is 'function', $(args).last()
 				p.wait args.pop()
+			# log "starting #{_op}:", args...
 			unless ns of connections then p.fail "namespace not connected: #{ns}"
 			else
 				id = p.promiseId
 				fail_or = (pass) -> (e, r) ->
+					# log "failing #{_op}:", e if e
 					if e then return p.fail(e)
 					try pass(r) catch err
 						log "failed in callback", _op, id, $.debugStack err.stack
 				connections[ns].wait fail_or (_db) ->
+					# log "#{_op}: issuing on #{_coll}:", args...
 					_db.collection(_coll)[_op] args..., fail_or (result) ->
+						# log "#{_op}: result", try $.as 'string', result catch err then String(result)
 						p.finish result
 			return p
 		# Wrap these native operations:
@@ -68,14 +77,14 @@ db = (ns = default_namespace) ->
 			unless ns of connections then cb new Error "namespace not connected: #{ns}"
 			else connections[ns].wait (err, _db) =>
 				key = ns + ":" + _coll
-				log "stream: starting...", key, query
+				# log "stream: starting...", key, query
 				if err then cb(err)
 				else unless key of collections
-					log "stream: restarting..."
+					# log "stream: restarting..."
 					$.delay 50, => @stream query, cb
 				else
 					try
-						log "stream: query...", query
+						# log "stream: query...", query
 						do openStream = ->
 							stream = collections[key].find(query, {
 								tailable: true,
@@ -86,10 +95,10 @@ db = (ns = default_namespace) ->
 								log "stream: error", err
 								cb err, null
 							stream.on 'data', (doc) ->
-								log "stream: data", doc
+								# log "stream: data", doc
 								cb null, doc
 							stream.on 'close', ->
-								log "stream: close", arguments
+								# log "stream: close", arguments
 								$.delay 100, openStream
 					catch err
 						log "stream: caught", err
@@ -101,7 +110,7 @@ db.connect = (args...) ->
 	connections[ns] = $.extend p = $.Promise(),
 		ns: ns
 		url: url
-	$.log "db: connect starting", url
+	# $.log "db: connect starting", url
 	MongoClient.connect url, { safe: true }, (err, db) ->
 		if err then p.reject(err) else p.resolve(db)
 	p.wait (err) ->
