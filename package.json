@@ -4,14 +4,14 @@
 	"description": "A little orm for mongodb",
 	"main": "lib/dokyu.js",
 	"dependencies": {
-		"bling": "latest",
-		"mongodb": "latest"
+		"bling": ">=0.8.13",
+		"mongodb": ">=2.0.25"
 	},
 	"devDependencies": {
 		"coffee-script": "latest"
 	},
 	"scripts": {
-		"test": "make test"
+		"test": "make && ./node_modules/.bin/mocha --compilers coffee:coffee-script/register -R spec --globals Bling,$ --bail"
 	},
 	"author": "Jesse Dailey <jesse.dailey@gmail.com>",
 	"license": "MIT"
