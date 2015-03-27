@@ -32,18 +32,14 @@ db = (ns = default_namespace) ->
 		opts = $.extend {}, opts, { safe: true }
 		log = $.logger "db.createCollection('#{name}', #{$.as 'repr', opts}, cb)"
 		key = ns + ":" + name
-		# $.log "db: createCollection", key, opts
 		unless ns of connections then $.log "db: not connected: #{ns}"
 		else if key of collections then $.log "db: createCollection already exists:", name
 		else
-			# $.log "db: createCollection",name,"starting to wait..."
-			log "waiting for connection..."
+			# log "waiting for connection..."
 			connections[ns].wait (err, _db) ->
 				if err then return log err
-				log "connected..."
-				# $.log "db: createCollection", name, "starting"
+				# log "connected..."
 				_db.createCollection name, opts, (err) ->
-					# $.log "db: createCollection", name, "completed"
 					collections[key] = _db.collection(name)
 					cb? err
 	collection: (_coll) ->
@@ -52,7 +48,7 @@ db = (ns = default_namespace) ->
 			p = $.Promise()
 			if $.is 'function', $(args).last()
 				p.wait args.pop()
-			log "starting"
+			# log "starting"
 			unless ns of connections then p.fail "namespace not connected: #{ns}"
 			else
 				id = p.promiseId

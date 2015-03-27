@@ -39,8 +39,7 @@ Document = (collection, doc_opts) ->
 		# given a result document from the database
 		constructor: (props) ->
 			super @
-			for own k,v of props
-				@[k] = v
+			if props? then for own k,v of props then @[k] = v
 			@_id ?= createObjectId()
 			@ready ?= $.Promise()
 			progress = $.Progress 2 + joins.length # 2 = 1 for setup, and 1 for the collection creation
@@ -57,7 +56,7 @@ Document = (collection, doc_opts) ->
 				query = { }
 				query[field] = @_id
 				switch type
-					when 'tailable'
+					when 'stream'
 						coll.stream query, (err, doc) =>
 							unless err then @emit name, doc
 						progress.finish(1)
@@ -93,12 +92,10 @@ Document = (collection, doc_opts) ->
 			if $.is 'function', cb
 				p.wait cb
 			fail_or = (f) -> (e, r) ->
-				$.log "getOrCreate: result", e, r
 				if e then return p.reject(e)
 				try f(r) catch err then p.reject(err)
 				null
 
-			$.log "getOrCreate: calling findOne", query
 			db(doc_opts.ns).collection(collection).findOne(query).wait fail_or (result) ->
 				if result? then new klass(result).ready.wait p.handler
 				else new klass(query).save().wait p.handler
@@ -165,7 +162,7 @@ Document = (collection, doc_opts) ->
 						$.extend {}, opts
 					when 'object' then db(doc_opts.ns).collection(coll).ensureIndex fields, \
 						$.extend {}, opts
-					when 'tailable'
+					when 'stream'
 						InnerDocument.ready.include p = $.Promise()
 						# $.log "dokyu: createCollection", coll, opts
 						opts = $.extend { capped: true, max: 10000, size: 10 MB }, opts
@@ -270,7 +267,7 @@ Document = (collection, doc_opts) ->
 									copy[name].save (err, write) ->
 										# save_log "done with", name, err, write
 										nextJoin j + 1
-							when 'tailable'
+							when 'stream'
 								return nextJoin j + 1
 							when 'array'
 								a = copy[name]
