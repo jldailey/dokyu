@@ -8,7 +8,8 @@
 		"mongodb": "latest"
 	},
 	"devDependencies": {
-		"coffee-script": "latest"
+		"coffee-script": "latest",
+		"mocha": "latest"
 	},
 	"scripts": {
 		"test": "make test"
