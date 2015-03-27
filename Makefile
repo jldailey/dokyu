@@ -25,4 +25,9 @@ ${MOCHA}:
 ${COFFEE}:
 	npm install coffee-script
 
+clean:
+	rm -rf lib
+	echo "db.dropDatabase()" | mongo document_test
+
+
 .PHONY: test
