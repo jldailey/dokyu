@@ -2,7 +2,7 @@ Document = require "../lib/dokyu"
 assert = require "assert"
 $ = require 'bling'
 
-log = $.logger "TEST:"
+test_log = $.logger "TEST:"
 
 describe "Document", ->
 
@@ -16,6 +16,12 @@ describe "Document", ->
 		it "is an EventEmitter", ->
 			class BasicDocument extends Document("basic")
 			assert.equal $.type(new BasicDocument().on), 'function'
+
+		it "takes properties given to the constructor", ->
+			class BasicDocument extends Document("basic")
+
+			b = new BasicDocument name: "magic"
+			assert.equal b.name, "magic"
 
 		it "stores objects in a collection", (done) ->
 			class BasicDocument extends Document("basic")
@@ -134,7 +140,6 @@ describe "Document", ->
 							assert.equal saved.name, name
 							Saved.remove( name: name ).wait (err, removed) ->
 								assert.equal err, null
-								$.log $.keysOf removed
 								assert.equal removed.result.n, 1
 								done()
 					it "can take a callback directly", (done) ->
@@ -149,39 +154,6 @@ describe "Document", ->
 								assert.equal err, null
 								assert.equal removed.result.n, 1
 								done()
-				describe "from static", ->
-					""" DISABLED
-					it "returns a promise", (done) ->
-						class Saved extends Document("saves")
-							@unique { name: 1 }
-						name = 'fs-rp-' + $.random.string 4
-						$.log "TEST: creating new Saved"
-						b = new Saved( name: name )
-						$.log "TEST: saving b.save()", b._id
-						b.save (err, saved) ->
-							$.log "TEST: saved", saved
-							assert.equal err, null
-							assert.equal saved._id, b._id
-							$.log "TEST: removing test record..."
-							Saved.remove( name: name ).wait (err, removed) ->
-								$.log "TEST: removed", removed
-								assert.equal err, null
-								assert.equal removed, 1
-								done()
-					it "can take a callback directly", (done) ->
-						class Saved extends Document("saves")
-							@unique { name: 1 }
-						name = 'fs-cb-' + $.random.string 4
-						b = new Saved( name: name )
-						Saved.save b, (err, saved) ->
-							assert.equal err, null
-							assert.equal saved._id, b._id # this asserts both that saved is the right object,
-							assert.equal saved.name, name
-							Saved.remove( name: name ).wait (err, removed) ->
-								assert.equal err, null
-								assert.equal removed, 1
-								done()
-					"""
 
 			it "remove", (done) ->
 				class Remove extends Document("removed")
@@ -316,11 +288,51 @@ describe "Document", ->
 					p.on 'message', (msg) ->
 						dt = $.now - start
 						magic = msg.magic
-					$.log "TEST: creating new Message..."
+					# test_log "creating new Message..."
 					m = new Message( parent: p._id, magic: "marker" ).save (err) ->
-						$.log "TEST: Message saved...", p._id
+						# test_log "Message saved...", p._id
 						$.delay 400, ->
 							assert.equal magic, "marker"
 							done()
 
+
+describe "A Complete Example", ->
+	it "works", (done) ->
+		class Player extends Document("players")
+			@join 'opponent', 'players', 'object', 'opponent'
+			@join 'message', 'messages', 'tailable'
+			@unique { name: 1 }
+
+		class Game extends Document('games')
+			@join 'players', 'players', 'array', 'game'
+			@unique { name: 1 }
+
+			addPlayer: (p) -> @players.push p
+
+		test_log "removing previous games..."
+		Game.remove {}, (err) ->
+			assert.equal err, null
+			test_log "removing previous players..."
+			Player.remove {}, (err) ->
+				assert.equal err, null
+				test_log "inserting a new Game..."
+				new Game( name: name = "game-" + $.random.string 11 ).save (err, game) ->
+					assert.equal err, null
+					test_log "saved the new Game...", game._id, game.constructor?.name
+					test_log "creating two new players"
+					a = new Player( name: "Andy" )
+					b = new Player( name: "Bob", opponent: a )
+					test_log "setting opponent"
+					a.opponent = b
+					test_log "adding players to game..."
+					game.addPlayer a
+					game.addPlayer b
+					test_log "saving game..."
+					game.save (err, game) ->
+						assert.equal err, null
+						test_log "fetching game..."
+						Game.getOrCreate(name: name).wait (err, g) ->
+							test_log "checking that players are still attached to game"
+							assert.deepEqual $(g.players).select('name'), ["Andy", "Bob"]
+							done()
 

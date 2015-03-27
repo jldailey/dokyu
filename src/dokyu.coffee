@@ -14,7 +14,7 @@ $.type.extend 'global',
 
 $.type.register 'document', _tmp = {
 	is: (o) -> o and $.isType 'InnerDocument', o
-	string: (o) -> "{ ... document ... }"
+	string: (o) -> "{ ... document:#{String(o._id).substr(19)} ... }"
 	repr: (o) -> "new #{o.constructor.name}({ #{("'#{k}': #{$.toRepr v}" for k,v of o).join()} })"
 	clone: (o) ->
 		if o then new (o.constructor)(o) else null
@@ -54,16 +54,14 @@ Document = (collection, doc_opts) ->
 					progress.finish(1)
 				klass = classes[coll] # the wrapper class for objects from this collection
 				coll = db(doc_opts.ns).collection(coll)
+				query = { }
+				query[field] = @_id
 				switch type
 					when 'tailable'
-						query = { }
-						query[field] = @_id
 						coll.stream query, (err, doc) =>
 							unless err then @emit name, doc
 						progress.finish(1)
 					when 'array'
-						query = { }
-						query[field] = @_id
 						fields = { }
 						sort = { }
 						sort[field+"_index"] = 1
@@ -77,7 +75,6 @@ Document = (collection, doc_opts) ->
 								else items
 								progress.finish(1)
 					when 'object'
-						query = { parent: @_id }
 						coll.findOne(query).wait fail_or (item) =>
 							@[name] = if item? and klass then construct klass, item else item
 							progress.finish(1)
@@ -96,10 +93,13 @@ Document = (collection, doc_opts) ->
 			if $.is 'function', cb
 				p.wait cb
 			fail_or = (f) -> (e, r) ->
+				$.log "getOrCreate: result", e, r
 				if e then return p.reject(e)
 				try f(r) catch err then p.reject(err)
 				null
-			db().collection(collection).findOne(query).wait fail_or (result) ->
+
+			$.log "getOrCreate: calling findOne", query
+			db(doc_opts.ns).collection(collection).findOne(query).wait fail_or (result) ->
 				if result? then new klass(result).ready.wait p.handler
 				else new klass(query).save().wait p.handler
 			p
@@ -152,8 +152,8 @@ Document = (collection, doc_opts) ->
 			join:   (name, coll, type, field, opts) ->
 				if $.is 'object', field
 					opts = field
+				unless $.is 'string', field
 					field = 'parent'
-				field ?= 'parent'
 				joins.push [name, coll, type, field]
 				fields = Object.create null
 				fields[field] = 1
