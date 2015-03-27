@@ -2,3 +2,4 @@ node_modules
 test/*.pass
 lib/
 .c9
+coverage
