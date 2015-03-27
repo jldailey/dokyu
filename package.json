@@ -3,6 +3,10 @@
 	"version": "0.1.1",
 	"description": "A little orm for mongodb",
 	"main": "lib/dokyu.js",
+	"repository": {
+		"type": "git",
+		"url": "git://github.com/jldailey/dokyu.git"
+	},
 	"dependencies": {
 		"bling": ">=0.8.13",
 		"mongodb": ">=2.0.25"
