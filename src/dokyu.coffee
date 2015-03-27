@@ -1,19 +1,33 @@
 $ = require 'bling'
 {db} = require './db'
 
-#define GB(n) (n*1024*1024*1024)
+#define KB *1024
+#define MB *1024 KB
+#define GB *1024 MB
 
 createObjectId = -> db.ObjectId.createPk()
 
 classes = {}
 
+$.type.extend 'global',
+	string: (o) -> "{ ... global ... }"
+
+$.type.register 'document', _tmp = {
+	is: (o) -> o and $.isType 'InnerDocument', o
+	string: (o) -> "{ ... document:#{String(o._id).substr(19)} ... }"
+	repr: (o) -> "new #{o.constructor.name}({ #{("'#{k}': #{$.toRepr v}" for k,v of o).join()} })"
+	clone: (o) ->
+		if o then new (o.constructor)(o) else null
+	hash: (o) -> ($.hash(k)*$.hash(v) for k,v of o).sum()
+}
+
 Document = (collection, doc_opts) ->
 	doc_opts = $.extend {
-		timeout: 1000
+		timeout: 3000
 		collection: collection
 		ns: undefined
 	}, doc_opts
-	return classes[doc_opts.collection] or= class InnerClass extends $.EventEmitter
+	return classes[doc_opts.collection] or= class InnerDocument extends $.EventEmitter
 
 		log = $.logger "[#{doc_opts.collection}]"
 
@@ -25,30 +39,32 @@ Document = (collection, doc_opts) ->
 		# given a result document from the database
 		constructor: (props) ->
 			super @
-			$.extend @, props, # add the database fields to this instance
-				ready: $.Promise() # and add a promise that indicates completion of all joins
+			for own k,v of props
+				@[k] = v
 			@_id ?= createObjectId()
-			progress = $.Progress 2 + joins.length # 2 = 1 for the joins, and 1 for the collection creation
-			InnerClass.ready.wait -> progress.finish 1
+			@ready ?= $.Promise()
+			progress = $.Progress 2 + joins.length # 2 = 1 for setup, and 1 for the collection creation
+			InnerDocument.ready.wait -> progress.finish 1
 			fail_or = (f) -> (err, result) ->
 				if err then return progress.reject err
 				else f(result)
 			for join in joins then do (join) =>
-				[name, coll, type] = join
+				[name, coll, type, field] = join
 				if not coll?
 					progress.finish(1)
 				klass = classes[coll] # the wrapper class for objects from this collection
 				coll = db(doc_opts.ns).collection(coll)
+				query = { }
+				query[field] = @_id
 				switch type
 					when 'tailable'
-						query = { parent: @_id }
 						coll.stream query, (err, doc) =>
 							unless err then @emit name, doc
 						progress.finish(1)
 					when 'array'
-						query = { parent: @_id }
 						fields = { }
-						sort = { index: 1 }
+						sort = { }
+						sort[field+"_index"] = 1
 						coll.find(query, fields, sort).wait fail_or (cursor) =>
 							cursor.toArray (err, items) =>
 								@[name] = if klass then items.map (x) ->
@@ -59,36 +75,42 @@ Document = (collection, doc_opts) ->
 								else items
 								progress.finish(1)
 					when 'object'
-						query = { parent: @_id }
 						coll.findOne(query).wait fail_or (item) =>
 							@[name] = if item? and klass then construct klass, item else item
 							progress.finish(1)
 			progress.finish(1)
 			progress.wait (err) =>
-				if err then @ready.reject err
-				else @ready.resolve @
+				if err then @ready?.reject err
+				else @ready?.resolve @
 
-		# the static method that is most commonly used to
-		# access documents.
-		InnerClass.getOrCreate = (query, cb) ->
+		# MyDocument.getOrCreate is the most common way to access documents.
+		# e.g.
+		#   class MyDocument extends Document('documents') then @unique { name: 1 }
+		#   MyDocument.getOrCreate { name: ... }, (err, doc) ->
+		InnerDocument.getOrCreate = (query, cb) ->
 			klass = @
 			p = $.Promise()
 			if $.is 'function', cb
 				p.wait cb
 			fail_or = (f) -> (e, r) ->
+				$.log "getOrCreate: result", e, r
 				if e then return p.reject(e)
 				try f(r) catch err then p.reject(err)
 				null
-			db().collection(collection).findOne(query).wait fail_or (result) ->
+
+			$.log "getOrCreate: calling findOne", query
+			db(doc_opts.ns).collection(collection).findOne(query).wait fail_or (result) ->
 				if result? then new klass(result).ready.wait p.handler
 				else new klass(query).save().wait p.handler
 			p
 
-		# the basic promise that the collection backing the type has been created
-		InnerClass.ready = $.Progress(1).wait (err) ->
+		# MyDocument.ready is the basic promise that the collection has been created
+		InnerDocument.ready = $.Progress(1)
 
-		$.immediate ->
-			InnerClass.ready.finish 1
+		# joins will get processed as each @join directive is parsed on each class definition
+		# so immediately on the next tick, consider the setup to be started
+		# each join can call InnerDocument.ready.include {promise} to delay readiness.
+		$.immediate -> InnerDocument.ready.finish 1
 
 		# construct all the stuff from a type, recursively
 		construct = (klass, stuff) ->
@@ -111,7 +133,7 @@ Document = (collection, doc_opts) ->
 			# $.log "[o] starting op:", _op, "(",args,") on collection", doc_opts.collection
 			db(doc_opts.ns).collection(doc_opts.collection)[_op](args...).wait (err, result) ->
 				timer.cancel()
-				# $.log "[o] finished op:", _op, err, result, p.promiseId
+				# $.log "[o] finished op:", _op, err, try $.as 'string', result catch err then String(result)
 				switch
 					when err then p.reject(err)
 					when expect_result and not result? then p.reject "no result"
@@ -120,26 +142,33 @@ Document = (collection, doc_opts) ->
 				null
 			p
 
-		$.extend InnerClass,
+		$.extend InnerDocument,
 			count:   o 'count'
 			findOne: o 'findOne', true
 			update:  o 'update'
 			remove:  o 'remove'
 			index:   o 'ensureIndex'
-			# save:    o 'save' # not join safe at the moment
 			unique: (keys) -> @index keys, { unique: true, dropDups: true }
-			join:   (name, coll, type = 'single', opts) ->
-				joins.push [name, coll, type]
-				opts ?= { }
+			join:   (name, coll, type, field, opts) ->
+				if $.is 'object', field
+					opts = field
+				unless $.is 'string', field
+					field = 'parent'
+				joins.push [name, coll, type, field]
+				fields = Object.create null
+				fields[field] = 1
+				if type is 'array'
+					fields[field+"_index"] = 1
 				# make sure the join query will be indexed
 				switch type
-					when 'array' then db(doc_opts.ns).collection(coll).ensureIndex { parent: 1, index: 1 }, \
+					when 'array' then db(doc_opts.ns).collection(coll).ensureIndex fields, \
 						$.extend {}, opts
-					when 'object' then db(doc_opts.ns).collection(coll).ensureIndex { parent: 1 }, \
-						$.extend { unique: true }, opts
+					when 'object' then db(doc_opts.ns).collection(coll).ensureIndex fields, \
+						$.extend {}, opts
 					when 'tailable'
-						InnerClass.ready.include p = $.Promise()
-						$.log "dokyu: createCollection", coll, opts
+						InnerDocument.ready.include p = $.Promise()
+						# $.log "dokyu: createCollection", coll, opts
+						opts = $.extend { capped: true, max: 10000, size: 10 MB }, opts
 						db(doc_opts.ns).createCollection coll, opts, (err) ->
 							if err then p.reject "save: createCollection error", err
 							p.resolve()
@@ -182,54 +211,82 @@ Document = (collection, doc_opts) ->
 							@each cb
 					null
 
+		$.type.extend {
+			unknown:   { symbol: -> "{unknown}" }
+			document:  { symbol: -> "{document}" }
+			bling:     { symbol: -> "$()" }
+			array:     { symbol: -> "[]" }
+			function:  { symbol: -> "->" }
+			promise:   { symbol: -> "{promise}" }
+			null:      { symbol: -> "{null}" }
+			undefined: { symbol: -> "{undefined}" }
+			string:    { symbol: -> "{string}" }
+			number:    { symbol: -> "{number}" }
+			ObjectId:  { symbol: -> "{ObjectId}" }
+			object:    { symbol: -> "{object}" }
+		}
+
+		print_proto_chain = $.printProtoChain = (o, indent = 0) ->
+			return unless o?
+			spacer = $.repeat(". ", indent)
+			cname = o.constructor?.name ? ""
+			console.log spacer + (if indent > 0 then "\\_" else "") + "class #{cname}:"
+			for own k,v of o ? {}
+				console.log "#{spacer}|- #{k} #{$.type.lookup(v).symbol(v)}"
+			print_proto_chain o.__proto__, indent + 1
+			null
+
 		# save should be recursive
 		# for every join on this document,
 		# detach and save any joined items
 		# then save self and re-attach items
 		save: (cb) ->
-			save_log = $.logger "save(#{@name})"
-			try return p = $.Promise().then (self) -> self.ready.resolve self
-			finally @ready.then (self) ->
-				self.ready.reset()
-				if cb then self.ready.wait cb
-				detached = Object.create null
+			orig = @
+			save_log = $.logger "save(#{@constructor.name}:#{@name})"
+			try return p = $.Promise().wait (err, result) ->
+				# save_log "ended with:", err, result
+				cb? err, result
+			finally orig.ready.then ->
+				copy = $.clone orig
+				# save_log "starting save...", $.as 'string', copy
+				unless copy?
+					return p.fail "clone failed"
 				do nextJoin = (j = 0) ->
 					if j >= joins.length
-						# save_log "done saving all joins, saving self...", self, doc_opts.ns, doc_opts.collection
-						return db(doc_opts.ns).collection(doc_opts.collection).save(self).wait (err) ->
-							if err then p.reject err
-							else p.resolve $.extend self, detached
-					[name, coll, type] = joins[j]
-					do (name, coll, type) ->
+						# save_log "done saving all joins, saving copy...", copy, doc_opts.ns, doc_opts.collection
+						return db(doc_opts.ns).collection(doc_opts.collection).save(copy).wait (err, write) ->
+							# save_log "done saving copy", err, write?.result
+							if err then return p.reject err
+							# save_log "resolving with original"
+							p.resolve orig
+					[name, coll, type, field] = joins[j]
+					do (name, coll, type, field) ->
 						switch type
 							when 'object'
-								# save_log "join",j,"saving",name, self[name]
-								if not self[name]?
+								if not copy[name]?
 									nextJoin j + 1
 								else
-									self[name].parent = self._id
-									self[name].save (err) ->
-										detached[name] = self[name]
-										self[name] = self[name]._id
+									copy[name][field] = orig[name][field] = orig._id
+									copy[name].save (err, write) ->
+										# save_log "done with", name, err, write
 										nextJoin j + 1
 							when 'tailable'
 								return nextJoin j + 1
 							when 'array'
-								a = self[name]
-								detached[name] = new Array(a.length)
+								a = copy[name]
+								b = orig[name]
 								do nextItem = (i = 0) ->
 									if i >= a.length
 										return nextJoin j + 1
 									# save_log "join",j,"saving",name,'index',i
-									a[i].parent = self._id
-									a[i].save (err) ->
-										detached[name][i] = a[i]
-										a[i] = a[i]._id
+									a[i][field] = b[i][field] = orig._id
+									a[i][field+"_index"] = b[i][field+"_index"] = i
+									a[i].save (err, write) ->
+										# save_log "done with", name, i, err, write
 										nextItem i + 1
 							when null
-								# save_log "join",j,"detaching",name, self.name
-								detached[name] = self[name]
-								delete self[name]
+								# save_log "detaching completely", name
+								delete copy[name]
 								nextJoin j + 1
 						null
 					null
@@ -240,9 +297,11 @@ Document = (collection, doc_opts) ->
 				log "Removing", @_id, "from", doc_opts.collection
 				p.include db(doc_opts.ns).collection(doc_opts.collection).remove( _id: @_id )
 				for join in joins then do (join) =>
-					[name, coll, type] = join
-					log "Removing joined data from", coll, "query:", { parent: @_id }
-					p.include db(doc_opts.ns).collection(coll).remove( { parent: @_id }, { multi: true } )
+					[name, coll, type,field] = join
+					query = {}
+					query[field] = @_id
+					log "Removing joined data from", coll, "query:", query
+					p.include db(doc_opts.ns).collection(coll).remove( query, { multi: true } )
 				p.finish(1)
 			p.on 'progress', (cur, max) =>
 				log "Removed", @_id, cur,"of",max

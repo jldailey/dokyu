@@ -12,7 +12,9 @@ all: ${JS_FILES}
 
 lib/%.js: src/%.coffee
 	@echo $< '>' $@
-	@mkdir -p $(shell dirname $@) && sed -e 's/# .*$$//' $< | cpp -w | ${COFFEE} -sc > $@
+	@(mkdir -p $(shell dirname $@) && \
+		sed -e 's/# .*$$//' $< | cpp -w > $(shell dirname $@)/$(shell basename $<) && \
+		${COFFEE} -cm $(shell dirname $@)/$(shell basename $<))
 
 test: ${JS_FILES} ${TEST_FILES}
 	@${MOCHA} ${MOCHA_OPTS}
