@@ -277,19 +277,16 @@ describe "Document", ->
 			it "lets you join a tailable cursor onto an event", (done) ->
 				class Message extends Document('messages')
 
-				class Player extends Document('players')
-					@join 'message', 'messages', 'tailable'
+				class Host extends Document('hosts')
+					@join 'message', 'messages', 'stream'
 
-				start = $.now
-				dt = 0
-				magic = null
-				p = new Player( name: "Jesse" )
+				magic = "timeout"
+				p = new Host( name: "Jesse" )
 				p.save (err) ->
 					p.on 'message', (msg) ->
-						dt = $.now - start
 						magic = msg.magic
 					# test_log "creating new Message..."
-					m = new Message( parent: p._id, magic: "marker" ).save (err) ->
+					m = new Message( parent: p._id, magic: "marker", finished: false ).save (err) ->
 						# test_log "Message saved...", p._id
 						$.delay 400, ->
 							assert.equal magic, "marker"
@@ -300,7 +297,7 @@ describe "A Complete Example", ->
 	it "works", (done) ->
 		class Player extends Document("players")
 			@join 'opponent', 'players', 'object', 'opponent'
-			@join 'message', 'messages', 'tailable'
+			@join 'message', 'messages', 'stream'
 			@unique { name: 1 }
 
 		class Game extends Document('games')
