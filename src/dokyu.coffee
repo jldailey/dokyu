@@ -31,56 +31,16 @@ Document = (collection, doc_opts) ->
 
 		log = $.logger "[#{doc_opts.collection}]"
 
-		joins = $ [
-			[ 'ready', null, null ] # during saves, detach but dont save it
-		]
+		instance_counter = 0
+		instance_cache = new $.Cache(1000, Infinity)
 
 		# the default constructor gets used to build instances,
 		# given a result document from the database
 		constructor: (props) ->
 			super @
 			if props? then for own k,v of props then @[k] = v
+			@instanceId = instance_counter++
 			@_id ?= createObjectId()
-			@ready ?= $.Promise()
-			progress = $.Progress 2 + joins.length # 2 = 1 for setup, and 1 for the collection creation
-			InnerDocument.ready.wait -> progress.finish 1
-			fail_or = (f) -> (err, result) ->
-				if err then return progress.reject err
-				else f(result)
-			for join in joins then do (join) =>
-				[name, coll, type, field] = join
-				if not coll?
-					progress.finish(1)
-				klass = classes[coll] # the wrapper class for objects from this collection
-				coll = db(doc_opts.ns).collection(coll)
-				query = { }
-				query[field] = @_id
-				switch type
-					when 'stream'
-						coll.stream query, (err, doc) =>
-							unless err then @emit name, doc
-						progress.finish(1)
-					when 'array'
-						fields = { }
-						sort = { }
-						sort[field+"_index"] = 1
-						coll.find(query, fields, sort).wait fail_or (cursor) =>
-							cursor.toArray (err, items) =>
-								@[name] = if klass then items.map (x) ->
-									x = new klass x
-									if $.is 'promise', x.ready
-										progress.include x.ready
-									x
-								else items
-								progress.finish(1)
-					when 'object'
-						coll.findOne(query).wait fail_or (item) =>
-							@[name] = if item? and klass then construct klass, item else item
-							progress.finish(1)
-			progress.finish(1)
-			progress.wait (err) =>
-				if err then @ready?.reject err
-				else @ready?.resolve @
 
 		# MyDocument.getOrCreate is the most common way to access documents.
 		# e.g.
@@ -97,17 +57,17 @@ Document = (collection, doc_opts) ->
 				null
 
 			db(doc_opts.ns).collection(collection).findOne(query).wait fail_or (result) ->
-				if result? then new klass(result).ready.wait p.handler
-				else new klass(query).save().wait p.handler
+				if result?
+					key = String result._id
+					p.resolve instance_cache.set key, if instance_cache.has key
+						# freshen the cached item with data fields from the db,
+						# but runtime things (from __proto__) like events, are preserved
+						$.extend instance_cache.get(key), result
+					else new klass(result)
+				else
+					key = String (ret = new klass query)._id
+					p.resolve instance_cache.set key, ret
 			p
-
-		# MyDocument.ready is the basic promise that the collection has been created
-		InnerDocument.ready = $.Progress(1)
-
-		# joins will get processed as each @join directive is parsed on each class definition
-		# so immediately on the next tick, consider the setup to be started
-		# each join can call InnerDocument.ready.include {promise} to delay readiness.
-		$.immediate -> InnerDocument.ready.finish 1
 
 		# construct all the stuff from a type, recursively
 		construct = (klass, stuff) ->
@@ -146,30 +106,6 @@ Document = (collection, doc_opts) ->
 			remove:  o 'remove'
 			index:   o 'ensureIndex'
 			unique: (keys) -> @index keys, { unique: true, dropDups: true }
-			join:   (name, coll, type, field, opts) ->
-				if $.is 'object', field
-					opts = field
-				unless $.is 'string', field
-					field = 'parent'
-				joins.push [name, coll, type, field]
-				fields = Object.create null
-				fields[field] = 1
-				if type is 'array'
-					fields[field+"_index"] = 1
-				# make sure the join query will be indexed
-				switch type
-					when 'array' then db(doc_opts.ns).collection(coll).ensureIndex fields, \
-						$.extend {}, opts
-					when 'object' then db(doc_opts.ns).collection(coll).ensureIndex fields, \
-						$.extend {}, opts
-					when 'stream'
-						InnerDocument.ready.include p = $.Promise()
-						# $.log "dokyu: createCollection", coll, opts
-						opts = $.extend { capped: true, max: 10000, size: 10 MB }, opts
-						db(doc_opts.ns).createCollection coll, opts, (err) ->
-							if err then p.reject "save: createCollection error", err
-							p.resolve()
-				@
 			# set the default query timeout
 			timeout: (ms) ->
 				try doc_opts.timeout = parseInt ms, 10
@@ -238,71 +174,16 @@ Document = (collection, doc_opts) ->
 		# detach and save any joined items
 		# then save self and re-attach items
 		save: (cb) ->
-			orig = @
-			save_log = $.logger "save(#{@constructor.name}:#{@name})"
-			try return p = $.Promise().wait (err, result) ->
-				# save_log "ended with:", err, result
-				cb? err, result
-			finally orig.ready.then ->
-				copy = $.clone orig
-				# save_log "starting save...", $.as 'string', copy
-				unless copy?
-					return p.fail "clone failed"
-				do nextJoin = (j = 0) ->
-					if j >= joins.length
-						# save_log "done saving all joins, saving copy...", copy, doc_opts.ns, doc_opts.collection
-						return db(doc_opts.ns).collection(doc_opts.collection).save(copy).wait (err, write) ->
-							# save_log "done saving copy", err, write?.result
-							if err then return p.reject err
-							# save_log "resolving with original"
-							p.resolve orig
-					[name, coll, type, field] = joins[j]
-					do (name, coll, type, field) ->
-						switch type
-							when 'object'
-								if not copy[name]?
-									nextJoin j + 1
-								else
-									copy[name][field] = orig[name][field] = orig._id
-									copy[name].save (err, write) ->
-										# save_log "done with", name, err, write
-										nextJoin j + 1
-							when 'stream'
-								return nextJoin j + 1
-							when 'array'
-								a = copy[name]
-								b = orig[name]
-								do nextItem = (i = 0) ->
-									if i >= a.length
-										return nextJoin j + 1
-									# save_log "join",j,"saving",name,'index',i
-									a[i][field] = b[i][field] = orig._id
-									a[i][field+"_index"] = b[i][field+"_index"] = i
-									a[i].save (err, write) ->
-										# save_log "done with", name, i, err, write
-										nextItem i + 1
-							when null
-								# save_log "detaching completely", name
-								delete copy[name]
-								nextJoin j + 1
-						null
-					null
+			try return p = $.Promise().wait (err, doc) -> cb? err, doc
+			finally db(doc_opts.ns).collection(doc_opts.collection).save(@).wait (err, write) =>
+				if err then p.reject err
+				else p.resolve @
 
-		remove: ->
-			p = $.Progress(1)
-			@ready.then (self) =>
-				log "Removing", @_id, "from", doc_opts.collection
-				p.include db(doc_opts.ns).collection(doc_opts.collection).remove( _id: @_id )
-				for join in joins then do (join) =>
-					[name, coll, type,field] = join
-					query = {}
-					query[field] = @_id
-					log "Removing joined data from", coll, "query:", query
-					p.include db(doc_opts.ns).collection(coll).remove( query, { multi: true } )
-				p.finish(1)
-			p.on 'progress', (cur, max) =>
-				log "Removed", @_id, cur,"of",max
-			p
+		remove: (cb) ->
+			try return p = $.Promise().wait (err, doc) -> cb? err, doc
+			finally db(doc_opts.ns).collection(doc_opts.collection).remove( _id: @_id ).wait (err, removed) =>
+				if err then p.reject err
+				else p.resolve $.extend @, { _id: null }
 
 Document.connect = (args...) ->
 	cb = if $.is 'function', $(args).last() then args.pop()

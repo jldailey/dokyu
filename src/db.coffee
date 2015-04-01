@@ -53,14 +53,13 @@ db = (ns = default_namespace) ->
 			else
 				id = p.promiseId
 				fail_or = (pass) -> (e, r) ->
-					log "MongoClient failed:", e if e
 					if e then return p.fail(e)
 					try pass(r) catch err
 						log "failed in callback", id, $.debugStack err.stack
 				connections[ns].wait fail_or (_db) ->
-					log "issuing real command to MongoClient..."
+					# log "--> to MongoClient..."
 					_db.collection(_coll)[_op] args..., fail_or (result) ->
-						log "MongoClient responded:", $.as 'string', result
+						# log "<-- from MongoClient:", $.as 'string', result
 						p.resolve result
 			return _touch?(p) ? p
 		# Wrap these native operations:
@@ -80,8 +79,8 @@ db = (ns = default_namespace) ->
 				# log "stream: starting...", key, query
 				if err then cb(err)
 				else unless key of collections
-					# log "stream: restarting..."
-					$.delay 50, => @stream query, cb
+					log "stream: waiting for connection..."
+					$.delay 300, => @stream query, cb
 				else
 					try
 						# log "stream: query...", query
@@ -89,17 +88,21 @@ db = (ns = default_namespace) ->
 							stream = collections[key].find(query, {
 								tailable: true,
 								awaitData: true,
+								noTimeout: true,
 								numberOfRetries: -1
 							}).stream()
+							_emit = stream.emit
+							stream.emit = ->
+								console.log "stream.emit", arguments...
+								_emit.apply stream, arguments
 							stream.on 'error', (err) ->
 								log "error", err
 								cb err, null
 							stream.on 'data', (doc) ->
-								# log "stream: data", doc
 								cb null, doc
 							stream.on 'close', ->
 								# log "stream: close", arguments
-								$.delay 100, openStream
+								$.delay 500, openStream
 					catch err
 						log "caught", err
 						cb err, null
