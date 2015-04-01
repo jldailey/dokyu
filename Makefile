@@ -1,7 +1,7 @@
 COFFEE=node_modules/.bin/coffee
 MOCHA=node_modules/.bin/mocha
 MOCHA_REPORTER?=spec
-MOCHA_OPTS=--compilers coffee:coffee-script/register --globals document,window,Bling,$$,_ -R ${MOCHA_REPORTER} --bail
+MOCHA_OPTS=--compilers coffee:coffee-script/register --globals document,window,Bling,$$,_ -R ${MOCHA_REPORTER} --bail -t 25000
 
 COFFEE_FILES=$(shell ls src/*.coffee)
 TEST_FILES=test/dokyu.coffee
