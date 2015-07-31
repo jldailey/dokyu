@@ -1,6 +1,6 @@
 {
 	"name": "dokyu",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "A little orm for mongodb",
 	"main": "lib/dokyu.js",
 	"repository": {
