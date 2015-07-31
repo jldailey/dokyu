@@ -83,9 +83,15 @@ Document = (collection, doc_opts) ->
 		# returns a cursor that yields MyDocuments.
 		o = (_op, expect_result=false) -> (args...) ->
 			klass = @
+			# wrap this operation in a Promise
 			p = $.Promise()
+			# automatically use a callback (if given) to wait on the Promise
 			if $.is 'function', $(args).last()
 				p.wait args.pop()
+			# if we are updating an object, and we pass the whole object in
+			# then there is only one match possible (the _id) so don't bother with the rest
+			if _op is 'update' and '_id' of args[0]
+				args[0] = { _id: args[0]._id }
 			timer = $.delay doc_opts.timeout, -> p.reject('timeout')
 			# $.log "[o] starting op:", _op, "(",args,") on collection", doc_opts.collection
 			db(doc_opts.ns).collection(doc_opts.collection)[_op](args...).wait (err, result) ->
